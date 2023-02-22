@@ -37,23 +37,9 @@
   (match p
     [(Program '() e) (Program '() ((uniquify_exp '()) e))]))
 
- 
-(define (rco_exp e l1)
-  (match e
-    [(Var x) (values (Var x) l1)]
-    [(Int n) (values (Int n) l1)]
-    [(Prim op es)
-     (Prim op (for/list ([e es]) (values (rco_exp e l1) l1)))]))
-   
-(define (rco_atom e l1)
-  (cond
-    [(atmo? e) (values e l1)]
-    [else (let ([tmp (gensym)]) (values 'tmp
-                                   (append (list ('tmp . (rco_exp e l1))) l1)))]))   
-    ;[_ (error)]))
-   ; [(Let x rhs body) (Let x (mklst))]
-    ;[(Prim op (list e1 e2)) (Prim op (
-                               
+
+
+
 ;; uniquify : R1 -> R1
 ;(define (uniquify p)
  ; (error "TODO: code goes here (uniquify)"))
@@ -63,10 +49,59 @@
     [(Int n) #t]
     [_ #f]))
 
+(define (simple? e)
+  (match e  
+  [(Prim op args) (andmap atmo? args)]
+  [(Let x e1 e2) (and (simple? e1) (simple? e2))]
+  [_(atmo? e)]))
+
+(define (rco e lst)
+  (error))
+
+(define (rco_atom e lst)
+  (cond
+    [(atmo? e) (values e lst)]
+    [(simple? e) (match e
+                   [(Prim op args) (let ([t1 (gensym)])
+                                     (values (Var t1) (dict-set lst t1 (Prim op args))))]
+                   ;terminal
+                   [(Let x e1 e2) (begin
+                                    (set! lst (dict-set lst x e1))
+                                    (let-values ([(e_out l_out) (rco_atom e2 lst)])
+                                      (values e_out l_out)))])]
+    [else
+     (match e
+       [(Prim op (list e1 e2));non-terminal
+                                 (let-values ([(e1_out l1_out) (rco_atom e1 lst)])
+                                   (let-values ([(e2_out l2_out) (rco_atom e2 lst)])
+                                     (begin
+                                       (set! lst (remove-duplicates (append l1_out l2_out)))
+                                       (rco_atom (Prim op (list e1_out e2_out)) lst))))]
+       [(Prim op (list e1)) (let-values ([(e_out l_out) (rco_atom e1 lst)])
+                              (rco_atom (Prim op (list e_out)) l_out))]
+       [(Let x e1 e2) (Let x (rco_exp e1) (rco_exp e2))])]))
+
+(define (rco_exp e)
+  (if (simple? e) e
+      (match e
+        [(Prim op (list e1 e2)) (let-values ([(e1_out l1_out) (rco_atom e1 '())]) ;;;;TERMINAL 
+                                  (let-values ([(e2_out l2_out) (rco_atom e2 '())])
+                                    (gen-code (remove-duplicates (append l1_out l2_out)) (Prim op (list e1_out e2_out)))))]
+        [(Prim op (list e1)) (let-values ([(atm l_out) (rco_atom e1 '())])
+                              (gen-code l_out (Prim op (list atm))))]
+        [(Let x e1 e2) (Let x (rco_exp e1) (rco_exp e2))])))
+
+(define (gen-code lst e)
+  (match lst
+    ['() e]
+    [(cons pair others) (match pair
+                          [(cons var eqn) (Let var eqn (gen-code others e))])]))
+
+   
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
   (match p
-    [(Program '() body) (Program '() (rco_exp body '()))]))
+    [(Program '() e) (Program '() (rco_exp e))]))
 
 ;; explicate-control : R1 -> C0ere (remove-complex-opera*)"))
 (define (explicate-control p)
@@ -80,6 +115,6 @@
  ; ("flip" ,flip  ,interp-Lvar ,type-check-Lvar)
     ;; Uncomment the following passes as you finish them.
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
-    ; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
+     ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
     ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
     ))
