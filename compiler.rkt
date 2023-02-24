@@ -97,6 +97,39 @@
     [(cons pair others) (match pair
                           [(cons var eqn) (Let var eqn (gen-code others e))])]))
 
+;Integers and Variables 29
+(define (explicate_tail e)
+  (match e
+    [(Var x) (Return (Var x))]
+    [(Int n) (Return (Int n))]
+    [(Let x rhs body) (explicate_assign rhs x (explicate_tail body))]
+    [(Prim op es) (Return (Prim op es))]
+    [else (error "explicate_tail unhandled case" e)]))
+
+
+(define (explicate_assign e x cont)
+  (match e
+    [(Var y) (Seq (Assign (Var x) (Var y)) cont)]
+    [(Int n) (Seq (Assign (Var x) (Int n)) cont)]
+    [(Let y rhs body) (explicate_assign rhs y (explicate_assign body x cont))]
+    [(Prim op es) (Seq (Assign (Var x) (Prim op es)) cont)]
+
+    [else (error "explicate_assign unhandled case" e)]))
+
+(define (list-vars tail lst)
+  (match tail
+    [(Return something) lst]
+    [(Seq (Assign (Var x) exp) next) (list-vars next (cons x lst))]))
+
+
+
+(define (explicate-control p)
+  (match p
+    [(Program info body) (let ([tail (explicate_tail body)])
+                           (let ([info_out (list-vars tail '())])
+                             (CProgram (dict-set '() 'locals (list info_out)) (dict-set '() 'start tail))))]))
+
+
    
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
@@ -104,8 +137,8 @@
     [(Program '() e) (Program '() (rco_exp e))]))
 
 ;; explicate-control : R1 -> C0ere (remove-complex-opera*)"))
-(define (explicate-control p)
-  (error))
+;(define (explicate-control p)
+ ; (error))
 
 ;; Define the compiler passes to be used by interp-tests and the grader
 ;; Note that your compiler file (the file that defines the passes)
@@ -116,5 +149,5 @@
     ;; Uncomment the following passes as you finish them.
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
-    ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
     ))
