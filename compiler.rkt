@@ -7,6 +7,7 @@
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
+(require "interp.rkt")
 (provide (all-defined-out))
 
 (define (flip p)
@@ -28,8 +29,8 @@
   (match e
     [(Var x) (Var (dict-ref env 'x))]
     [(Int n) (Int n)]
-    [(Let x e body) (let ([env (dict-set env 'x (gensym))])
-                       (Let (dict-ref env 'x) ((uniquify_exp env) e) ((uniquify_exp env) body)))]
+    [(Let x e body) (let ([new-env (dict-set env 'x (gensym))])
+                       (Let (dict-ref new-env 'x) ((uniquify_exp env) e) ((uniquify_exp new-env) body)))]
     [(Prim op es)
      (Prim op (for/list ([e es]) ((uniquify_exp env) e)))])))
 
@@ -97,7 +98,8 @@
     [(cons pair others) (match pair
                           [(cons var eqn) (Let var eqn (gen-code others e))])]))
 
-;Integers and Variables 29
+
+
 (define (explicate_tail e)
   (match e
     [(Var x) (Return (Var x))]
@@ -129,7 +131,44 @@
                            (let ([info_out (list-vars tail '())])
                              (CProgram (dict-set '() 'locals (list info_out)) (dict-set '() 'start tail))))]))
 
+(define (translate tail)
+  (match tail
+    [(Seq stmt tail) (append (trans-stmt stmt) (translate tail))]
+    [(Return exp) (append (trans-stmt (Assign (Reg 'rax) exp)) (list (Jmp 'conclusion)))]))
 
+
+(define (trans-stmt stmt)
+  (match stmt
+    [(Assign var exp) (match exp
+                              [(Prim '+ (list atm1 atm2)) (list (Instr 'movq (list (imm atm1) var))
+                                                                (Instr 'addq (list (imm atm2) var)))]
+                              
+                              [(Prim '- (list atm1 atm2)) (list (Instr 'movq (list (imm atm2) var))
+                                                                (Instr 'subq (list (imm atm1) var)))]
+                              
+                              [(Prim '- (list atm1)) (list (Instr 'negq (list (imm atm1)))
+                                                          (Instr 'movq (list (imm atm1) var)))]
+                              
+                              [(Prim 'read empty) (list (Callq 'read_int 0)
+                                                        (Instr 'movq (Reg 'rax) var))]
+                              
+                              [(Int n) (list (Instr 'movq (list (Imm n) var)))]
+                              
+                              [(Var x) (list (Instr 'movq (list (Var x) var)))])]))
+;;;;;TODO 
+(define (imm atm)
+  (match atm
+    [(Int n) (Imm n)]
+    [_ atm]))
+  
+                      
+                              
+(define (select-instructions p)
+  (match p
+    [(CProgram info (list (cons 'start tail))) (let* ((instr-list (translate tail))
+                                                      (instr-list  instr-list))
+                                                 (X86Program info (dict-set '() 'start (Block info instr-list))))]))
+                                                 
    
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
@@ -150,4 +189,5 @@
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ("instruction selection", select-instructions, interp-pseudo-x86-0) 
     ))
