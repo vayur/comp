@@ -80,7 +80,7 @@
                                        (rco_atom (Prim op (list e1_out e2_out)) lst))))]
        [(Prim op (list e1)) (let-values ([(e_out l_out) (rco_atom e1 lst)])
                               (rco_atom (Prim op (list e_out)) l_out))]
-       [(Let x e1 e2) (Let x (rco_exp e1) (rco_exp e2))])]))
+       [(Let x e1 e2) (rco_atom (Let x (rco_exp e1) (rco_exp e2)) lst)])]))
 
 (define (rco_exp e)
   (if (simple? e) e
@@ -143,14 +143,14 @@
                               [(Prim '+ (list atm1 atm2)) (list (Instr 'movq (list (imm atm1) var))
                                                                 (Instr 'addq (list (imm atm2) var)))]
                               
-                              [(Prim '- (list atm1 atm2)) (list (Instr 'movq (list (imm atm2) var))
-                                                                (Instr 'subq (list (imm atm1) var)))]
+                              [(Prim '- (list atm1 atm2)) (list (Instr 'movq (list (imm atm1) var))
+                                                                (Instr 'subq (list (imm atm2) var)))]
                               
                               [(Prim '- (list atm1)) (list (Instr 'negq (list (imm atm1)))
                                                           (Instr 'movq (list (imm atm1) var)))]
                               
                               [(Prim 'read empty) (list (Callq 'read_int 0)
-                                                        (Instr 'movq (Reg 'rax) var))]
+                                                        (Instr 'movq (list (Reg 'rax) var)))]
                               
                               [(Int n) (list (Instr 'movq (list (Imm n) var)))]
                               
@@ -167,8 +167,75 @@
   (match p
     [(CProgram info (list (cons 'start tail))) (let* ((instr-list (translate tail))
                                                       (instr-list  instr-list))
-                                                 (X86Program info (dict-set '() 'start (Block info instr-list))))]))
-                                                 
+                                                 (X86Program info (dict-set '() 'start (Block '() instr-list))))]))
+
+(define (assign-homes p)
+  (match p
+    [(X86Program info (list (cons 'start (Block l-info l-instr)))) (let ([var-map (gen-var-map info)])
+                                                                     (X86Program (set-stack-space info) (list (cons 'start (Block l-info (rem-vars l-instr var-map))))))]))
+
+
+
+(define (set-stack-space info)
+  (let ([var-lst (dict-ref info 'locals-types '())])
+    (let ([size (if (eq? (modulo (length var-lst) 2) 0)
+                    (* 8 (length var-lst))
+                    (* 8 (+ 1 (length var-lst))))])
+     ; (display info)
+      (dict-set info 'stack-space size))))
+                                                                                    
+(define (gen-var-map info)
+  (define new-info (dict-ref info 'locals-types '()))
+  ;(display new-info)
+  (gen-var-map-helper new-info 1))
+
+
+ 
+(define (gen-var-map-helper info n)
+  (match info
+    ['() '()]
+    [(cons a others) (cons
+                      (match a
+                       [(cons key val) (cons key n)])
+                       (gen-var-map-helper others (add1 n)))]))
+
+(define (rem-vars instr-lst var-map)
+  (match instr-lst
+    ['() '()]
+    ;;NON TERMinAl
+    [(cons a others) (cons
+                      (match a
+                       [(Instr op (list arg1 arg2)) (Instr op (list (h1 arg1 var-map) (h1 arg2 var-map)))]
+                       [(Instr op (list arg1)) (Instr op (list (h1 arg1 var-map)))]
+                       [_ a])
+                      (rem-vars others var-map))]))
+
+(define (h1 arg var-map)
+  (match arg
+    [(Var x) (Deref 'rbp (- (* (dict-ref var-map x) 8)))]
+    [_ arg]))
+
+
+(define (patch-instructions p)
+  (match p
+    [(X86Program info (list (cons 'start (Block l-info l-instr)))) (X86Program info (list (cons 'start (Block l-info (patch l-instr)))))]))
+
+(define (patch instr-lst)
+  (match instr-lst
+    ['() '()]
+    ;;NON TERMinAl
+    [(cons a others) (append
+                      (match a
+                       [(Instr op (list arg1 arg2)) (if (and (deref? arg1) (deref? arg2))
+                                                        (list (Instr 'movq (list arg1 (Reg 'rax))) (Instr op (list (Reg 'rax) arg2)))
+                                                        (list (Instr op (list arg1 arg2))))]
+                       [_ (list a)])
+                      (patch others))]))
+
+(define (deref? arg)
+  (match arg
+    [(Deref reg int) #t]
+    [_ #f]))
    
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
@@ -189,5 +256,7 @@
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ("instruction selection", select-instructions, interp-pseudo-x86-0) 
+     ("instruction selection", select-instructions, interp-pseudo-x86-0)
+     ("assign homes", assign-homes, interp-x86-0)
+     ("patch instructions", patch-instructions, interp-x86-0)
     ))
