@@ -236,7 +236,32 @@
   (match arg
     [(Deref reg int) #t]
     [_ #f]))
-   
+
+ 
+(define (prelude-and-conclusion p)
+  (match p
+    [(X86Program info blocks) (let ([stack-space (dict-ref info 'stack-space)])
+                                (set! blocks (dict-set blocks 'main (gen-main stack-space)))
+                                (set! blocks (dict-set blocks 'conclusion (gen-conclusion stack-space)))
+                               ; (display blocks)
+                                (X86Program info blocks))]))
+                                
+
+(define (gen-main stack-space)
+  (let ([main-block (Block '() (list
+                                (Instr 'pushq (list (Reg 'rbp)))
+                                (Instr 'movq (list (Reg 'rsp) (Reg 'rbp)))
+                                (Instr 'subq (list (Imm stack-space) (Reg 'rsp)))
+                                (Jmp 'start)))])
+    main-block))
+
+(define (gen-conclusion stack-space)
+  (let ([conc (Block '() (list
+                          (Instr 'addq (list (Imm stack-space) (Reg 'rsp)))
+                          (Instr 'popq (list (Reg 'rbp)))
+                          (Retq)))])
+    conc))
+
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
   (match p
@@ -259,4 +284,5 @@
      ("instruction selection", select-instructions, interp-pseudo-x86-0)
      ("assign homes", assign-homes, interp-x86-0)
      ("patch instructions", patch-instructions, interp-x86-0)
+     ("prelude and conclusion", prelude-and-conclusion, interp-x86-0)
     ))
